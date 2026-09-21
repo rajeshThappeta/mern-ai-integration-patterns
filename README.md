@@ -28,3 +28,16 @@ B. Retrieval and Generation Pipeline
                     Instruction: Answer only using the supplied context
             7. The LLM generates a context-aware answer.
             8. The API returns the generated answer to the user.
+
+
+
+
+# Without chunk overlap
+        Chunk 1: AI agents can independently plan tasks and communicate with
+
+        Chunk 2: external tools such as databases, APIs and web browsers.
+
+# With chunk overlap
+        Chunk 1: AI agents can independently plan tasks and communicate with external tools.
+
+        Chunk 2:communicate with external tools such as databases, APIs and web browsers.
