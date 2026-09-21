@@ -5,5 +5,18 @@
     "dotenv": "^18.0.1",
     "express": "^5.2.1",
     "mongoose": "^9.10.1"
-  }
+  },
+  "name": "rag-demo",
+  "version": "1.0.0",
+  "description": "A. Article Ingestion Pipeline             1. The user submits an article of approximately 500 words on a specific subject.             2. The route validates the input and saves the article in the articles collection to generate an articleId.             3. The article text and articleId are sent to the Chunking Service.             4. The Chunking Service splits the article into smaller, slightly overlapping chunks.             5. The list of chunks is sent to the Embedding Service.             6. The Embedding Service generates an embedding for each chunk and returns objects containing:             {             articleId,             chunkIndex,             chunkText,             embedding             }             7. These chunk documents are saved in the chunks collection with a reference to the original article.             8. The API confirms that the article has been successfully indexed and is ready for RAG-based search.",
+  "main": "server.js",
+  "devDependencies": {},
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node server.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module"
 }
