@@ -1,11 +1,13 @@
 import express from "express";
-import {Types} from 'mongoose'
+import { Types } from "mongoose";
 import { splitArticleToChunks } from "../services/split-article.service.js";
 import { ArticleModel } from "../models/article.model.js";
 import { ChunkModel } from "../models/chunk.model.js";
 import { generateChunkEmbeddings } from "../services/generate-embeddings.service.js";
 import { generateQueryEmbedding } from "../services/generate-query-embedding.service.js";
 import { generateRagAnswer } from "../services/llm.service.js";
+import { upload } from "../middlewares/multer.middleware.js";
+import { extractTextFromFile } from "../services/text-extraction.service.js";
 export const articleRouter = express.Router();
 
 //Injestion
@@ -31,8 +33,6 @@ articleRouter.post("/", async (req, res) => {
     data: { articleId: newArticle._id, chunkCount: result.length },
   });
 });
-
-
 
 //Retrieval & Generation
 articleRouter.post("/:articleId/search", async (req, res) => {
@@ -92,3 +92,71 @@ articleRouter.post("/:articleId/search", async (req, res) => {
   // send query + chunks to llm and get answer
   //send ans and chukns in res
 });
+
+//File upload Injection
+articleRouter.post(
+  "/upload",
+
+  // Read one uploaded file from the form-data field named "file".
+  upload.single("file"),
+
+  async (req, res) => {
+    // Multer places text fields inside req.body.
+    const title = req.body.title?.trim();
+
+    // Multer places the uploaded file and its buffer inside req.file.
+    const uploadedFile = req.file;
+
+    if (!title) {
+      const error = new Error("Article title is required");
+      error.statusCode = 400;
+      throw error;
+    }
+
+    if (!uploadedFile) {
+      const error = new Error("Please upload a file");
+      error.statusCode = 400;
+      throw error;
+    }
+
+    // Extract and clean text from the uploaded file buffer.
+    const content = await extractTextFromFile(
+      uploadedFile.buffer,
+      uploadedFile.mimetype,
+    );
+
+    // Store the original extracted article content.
+    const newArticle = await ArticleModel.create({
+      title,
+      content,
+    });
+
+    // Split the extracted article into smaller searchable chunks.
+    const chunksList = await splitArticleToChunks(content);
+
+    if (chunksList.length === 0) {
+      const error = new Error("Unable to create chunks from the uploaded file");
+      error.statusCode = 422;
+      throw error;
+    }
+
+    // Generate an embedding for every chunk and attach the article reference.
+    const chunksWithEmbeddings = await generateChunkEmbeddings(
+      newArticle._id,
+      chunksList,
+    );
+
+    // Store all chunks and their embeddings in the chunks collection.
+    const savedChunks = await ChunkModel.insertMany(chunksWithEmbeddings);
+
+    res.status(201).json({
+      success: true,
+      message: "File uploaded and article processed successfully",
+      data: {
+        articleId: newArticle._id,
+        chunkCount: savedChunks.length,
+      },
+    });
+  },
+);
+

@@ -5,7 +5,9 @@
     "@langchain/textsplitters": "^1.0.1",
     "dotenv": "^18.0.1",
     "express": "^5.2.1",
-    "mongoose": "^9.10.1"
+    "mongoose": "^9.10.1",
+    "multer": "^2.4.0",
+    "unpdf": "^1.8.1"
   },
   "name": "rag-demo",
   "version": "1.0.0",
