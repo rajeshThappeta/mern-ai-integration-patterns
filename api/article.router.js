@@ -5,9 +5,14 @@ import { ArticleModel } from "../models/article.model.js";
 import { ChunkModel } from "../models/chunk.model.js";
 import { generateChunkEmbeddings } from "../services/generate-embeddings.service.js";
 import { generateQueryEmbedding } from "../services/generate-query-embedding.service.js";
-import { generateRagAnswer } from "../services/llm.service.js";
+import {
+  generateConversationalRagAnswer,
+  generateRagAnswer,
+} from "../services/llm.service.js";
 import { upload } from "../middlewares/multer.middleware.js";
 import { extractTextFromFile } from "../services/text-extraction.service.js";
+import { ConversationModel } from "../models/conversation.model.js";
+import { generateStandaloneQuery } from "../services/generate-standalone-query.service.js";
 export const articleRouter = express.Router();
 
 //Injestion
@@ -96,7 +101,6 @@ articleRouter.post("/:articleId/search", async (req, res) => {
 //File upload Injection
 articleRouter.post(
   "/upload",
-
   // Read one uploaded file from the form-data field named "file".
   upload.single("file"),
 
@@ -160,3 +164,163 @@ articleRouter.post(
   },
 );
 
+// Chat
+articleRouter.post("/chat", async (req, res) => {
+  // Get the query and one identifier from the request body.
+  const { query, articleId, conversationId } = req.body;
+
+  // Accept either articleId for a new conversation or
+  // conversationId for a follow-up message, but not both.
+  if ((!articleId && !conversationId) || (articleId && conversationId)) {
+    const error = new Error(
+      "Provide either articleId or conversationId, but not both",
+    );
+    error.statusCode = 400;
+    throw error;
+  }
+
+  // Ensure that the user provided a valid query.
+  if (typeof query !== "string" || query.trim() === "") {
+    const error = new Error("A non-empty query is required");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  // Remove unnecessary whitespace from the query.
+  const currentQuery = query.trim();
+
+  // These variables are populated based on whether the request
+  // starts a new conversation or continues an existing one.
+  let activeArticleId;
+  let activeConversationId;
+  let conversationHistory = [];
+  let standaloneQuery = currentQuery;
+
+  if (conversationId) {
+    // Ensure that conversationId is a valid MongoDB ObjectId.
+    if (!Types.ObjectId.isValid(conversationId)) {
+      const error = new Error("Invalid conversation ID");
+      error.statusCode = 400;
+      throw error;
+    }
+
+    // Find the existing conversation.
+    const conversation = await ConversationModel.findById(conversationId);
+
+    if (!conversation) {
+      const error = new Error("Conversation not found");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    // Use the article associated with the existing conversation.
+    activeArticleId = conversation.articleId;
+    activeConversationId = conversation._id;
+
+    // Use only the latest messages to control the LLM context size.
+    conversationHistory = conversation.messages.slice(-10);
+
+    // Rewrite the follow-up question as an independent search query.
+    standaloneQuery = await generateStandaloneQuery(
+      currentQuery,
+      conversationHistory,
+    );
+
+    console.log("Standalone query :", standaloneQuery);
+  } else {
+    // Ensure that articleId is a valid MongoDB ObjectId.
+    if (!Types.ObjectId.isValid(articleId)) {
+      const error = new Error("Invalid article ID");
+      error.statusCode = 400;
+      throw error;
+    }
+
+    // Verify that the selected article exists.
+    const article = await ArticleModel.findById(articleId);
+
+    if (!article) {
+      const error = new Error("Article not found");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    activeArticleId = article._id;
+
+    // Create an empty conversation for the first message.
+    const conversation = await ConversationModel.create({
+      articleId: activeArticleId,
+      messages: [],
+    });
+
+    activeConversationId = conversation._id;
+  }
+
+  // Generate an embedding for the standalone search query.
+  const queryEmbedding = await generateQueryEmbedding(standaloneQuery);
+
+  // Retrieve chunks only from the article associated
+  // with the current conversation.
+  const semanticSearchResult = await ChunkModel.aggregate([
+    {
+      $vectorSearch: {
+        index: "article_vector_index",
+        path: "embedding",
+        queryVector: queryEmbedding,
+        numCandidates: 100,
+        limit: 5,
+        filter: {
+          articleId: activeArticleId,
+        },
+      },
+    },
+    {
+      $project: {
+        _id: 0,
+        articleId: 1,
+        chunkIndex: 1,
+        chunkText: 1,
+        score: {
+          $meta: "vectorSearchScore",
+        },
+      },
+    },
+  ]);
+
+  // Send the current query, relevant chunks and conversation
+  // history to the Chat LLM service to generate an answer.
+  const answer = await generateConversationalRagAnswer(
+    currentQuery,
+    semanticSearchResult,
+    conversationHistory,
+  );
+
+  // Add the current user question and assistant answer
+  // to the same conversation.
+  await ConversationModel.findByIdAndUpdate(activeConversationId, {
+    $push: {
+      messages: {
+        $each: [
+          {
+            role: "user",
+            content: currentQuery,
+          },
+          {
+            role: "assistant",
+            content: answer,
+          },
+        ],
+      },
+    },
+  });
+
+  // Return the conversation ID so the client can use it
+  // when sending the next follow-up question.
+  res.status(200).json({
+    success: true,
+    data: {
+      conversationId: activeConversationId,
+      answer,
+      relevantChunks: semanticSearchResult,
+    },
+  });
+});
