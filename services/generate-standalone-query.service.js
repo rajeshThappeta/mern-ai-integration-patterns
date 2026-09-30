@@ -1,9 +1,5 @@
 import { ChatOllama } from "@langchain/ollama";
-import {
-  AIMessage,
-  HumanMessage,
-  SystemMessage,
-} from "@langchain/core/messages";
+import {AIMessage,HumanMessage,SystemMessage,} from "@langchain/core/messages";
 
 // Configure the LLM used to rewrite follow-up questions.
 const chatModel = new ChatOllama({
