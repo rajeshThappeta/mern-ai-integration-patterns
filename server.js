@@ -2,12 +2,14 @@ import express from "express";
 import { connect } from "mongoose";
 import { config } from "dotenv";
 import { articleRouter } from "./api/article.router.js";
+import { agentRouter } from "./api/agent.router.js";
 config();
 const app = express();
 // body parser middleware
 app.use(express.json());
 // article router integration
 app.use("/api/articles",articleRouter)
+app.use("/api/agent",agentRouter)
 
 async function connectDB() {
   try {

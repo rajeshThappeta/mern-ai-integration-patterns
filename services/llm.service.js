@@ -18,12 +18,15 @@ import { searchAcademicPapersTool } from "../tools/search-academic-papers.tool.j
 import { lookupTopicTool } from "../tools/lookup-topic.tool.js";
 import { translateTextTool } from "../tools/translate-text.tool.js";
 
+
 // These are the tools the model is allowed to request.
 const chatTools = [
   searchAcademicPapersTool,
   lookupTopicTool,
   translateTextTool,
 ];
+
+
 
 export async function generateRagAnswer(query, semanticSearchResult) {
   // Validate query
